@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SERA - Shinhan Eco Risk Analyst</title>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Plotly JS -->
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <!-- Custom CSS -->
+    <style>
+        @font-face {
+            font-family: 'OneShinhanLight';
+            src: url('static/OneShinhanLight.ttf') format('truetype');
+            font-weight: 300;
+            font-style: normal;
+        }
+
+        @font-face {
+            font-family: 'OneShinhanMedium';
+            src: url('static/OneShinhanMedium.ttf') format('truetype');
+            font-weight: 500;
+            font-style: normal;
+        }
+
+        @font-face {
+            font-family: 'OneShinhanBold';
+            src: url('static/OneShinhanBold.ttf') format('truetype');
+            font-weight: 700;
+            font-style: normal;
+        }
+
+        body {
+            background-color: #f4f7f6;
+            font-family: 'OneShinhanLight', 'Roboto', sans-serif;
+            color: #333;
+        }
+
+        .container {
+            margin-top: 30px;
+            max-width: 1200px;
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .header-title h1 {
+            font-family: 'OneShinhanBold', 'Roboto', sans-serif;
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #0056b3;
+        }
+
+        .form-section,
+        .result-section,
+        .guide-section {
+            background-color: #ffffff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .btn-primary {
+            background-color: #007bff;
+            border: none;
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-family: 'OneShinhanMedium', 'Roboto', sans-serif;
+            font-size: 1.1rem;
+            transition: background-color 0.3s, transform 0.3s;
+            width: 100%;
+        }
+
+        .btn-primary:hover {
+            background-color: #0056b3;
+            transform: scale(1.05);
+        }
+
+        .form-group label {
+            font-family: 'OneShinhanMedium', 'Roboto', sans-serif;
+            font-weight: bold;
+            color: #0056b3;
+        }
+
+        .form-group textarea {
+            font-family: 'OneShinhanLight', 'Roboto', sans-serif;
+            font-size: 0.875rem;
+            padding: 0.75rem;
+            border-radius: 5px;
+            border: 1px solid #ced4da;
+            resize: vertical;
+        }
+
+        .form-group .help-text {
+            font-family: 'OneShinhanLight', 'Roboto', sans-serif;
+            font-size: 0.75rem;
+            color: #6c757d;
+        }
+
+        .spinner-border {
+            display: none;
+        }
+
+        .heatmap-title {
+            font-family: 'OneShinhanBold', 'Roboto', sans-serif;
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 15px;
+            text-align: center;
+            color: #0056b3;
+        }
+
+        .guide-title {
+            font-family: 'OneShinhanBold', 'Roboto', sans-serif;
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 15px;
+            text-align: center;
+            color: #0056b3;
+        }
+
+        .guide-text {
+            font-family: 'OneShinhanLight', 'Roboto', sans-serif;
+            font-size: 0.875rem;
+            line-height: 1.6;
+        }
+
+        footer {
+            margin-top: 20px;
+            text-align: center;
+            color: #aaa;
+            font-size: 0.875rem;
+        }
+
+        .tab-content .tab-pane {
+            margin-top: 20px;
+        }
+
+        .nav-tabs .nav-link {
+            font-family: 'OneShinhanMedium', 'Roboto', sans-serif;
+            color: #0056b3;
+            font-weight: bold;
+        }
+
+        .nav-tabs .nav-link.active {
+            font-family: 'OneShinhanBold', 'Roboto', sans-serif;
+            color: #ffffff;
+            background-color: #0056b3;
+        }
+
+        @media (max-width: 768px) {
+
+            .form-section,
+            .guide-section {
+                padding: 15px;
+            }
+
+            .btn-primary {
+                font-size: 1rem;
+                padding: 10px;
+            }
+
+            .header-title h1 {
+                font-size: 2rem;
+            }
+
+            .heatmap-title,
+            .guide-title {
+                font-size: 1.25rem;
+            }
+        }
+
+        .tooltip-inner {
+            max-width: 300px;
+            width: max-content;
+        }
+
+        .logo {
+            max-width: 150px;
+            display: block;
+            margin: 0 auto 20px;
+        }
+
+        .reset-button {
+            background: none;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+            color: #007bff;
+            font-size: 1.5rem;
+            position: absolute;
+            right: 10px;
+            top: 10px;
+            z-index: 10;
+        }
+    </style>
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('../static/service-worker.js')
+                    .then(function (registration) {
+                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                    }, function (error) {
+                        console.log('ServiceWorker registration failed: ', error);
+                    });
+            });
+        }
+    </script>
+</head>
+
+<body>
+    <div class="container">
+        <img src="{{ url_for('static', filename='images/logo_transparent.png') }}" alt="SERA Logo" class="logo">
+        <div class="header-title">
+            <h1>SERA - Shinhan Eco Risk Analyst</h1>
+        </div>
+        <div class="guide-section">
+            <div class="accordion" id="guideAccordion">
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="headingOne">
+                        <button class="accordion-button" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#collapseOne" aria-expanded="true" aria-controls="collapseOne">
+                            사용자 가이드
+                        </button>
+                    </h2>
+                    <div id="collapseOne" class="accordion-collapse collapse show" aria-labelledby="headingOne"
+                        data-bs-parent="#guideAccordion">
+                        <div class="accordion-body">
+                            <div class="guide-text">
+                                <p>환영합니다! SERA (Shinhan Eco Risk Analysts)는 매크로 경제 지표를 통해 기업의 BSI 값을 예측하는 도구입니다. 이 가이드는
+                                    SERA 페이지를 사용하는 방법을 설명합니다.</p>
+                                <p><strong>입력 필드 설명</strong></p>
+                                <p>각 입력 필드는 주요 경제 지표를 나타냅니다. 해당 지표의 값을 쉼표로 구분하여 입력하세요. 예시: 2.875, 3.000, 3.125</p>
+                                <p><strong>필드 그룹</strong></p>
+                                <ul>
+                                    <li><strong>국내 경제 지표:</strong> 한국의 경제 상황을 나타내는 지표들입니다. 예: 소비자신뢰지수 (KR CCSI), 국내총생산
+                                        (KR GDP) 등</li>
+                                    <li><strong>국제 지표 및 통화:</strong> 글로벌 경제 상황 및 통화 정보를 나타내는 지표들입니다. 예: 미국 금리 (US
+                                        Interest Rate), 유럽 통화 (KR EU Currency) 등</li>
+                                    <li><strong>인구 통계 및 환경:</strong> 인구 통계와 환경 관련 지표들입니다. 예: 입국 수 (KR Entry), 가구 수 (KR
+                                        Households) 등</li>
+                                </ul>
+                                <p><strong>데이터 입력 방법</strong></p>
+                                <p>각 입력 필드에 값을 입력할 때, 쉼표로 구분된 복수의 값을 입력할 수 있습니다. 입력된 값은 예측을 위한 시나리오 데이터로 사용됩니다. 필드에 값이
+                                    입력되지 않으면 기본 값이 사용됩니다.</p>
+                                <p><strong>예시 데이터 입력</strong></p>
+                                <ul>
+                                    <li>금리 (KR Interest): 2.875, 3.000, 3.125</li>
+                                    <li>소비자신뢰지수 (KR CCSI): 98.4, 100.0, 101.5</li>
+                                </ul>
+                                <p><strong>결과 해석</strong></p>
+                                <p>예측 결과는 두 가지 그래프로 제공됩니다.</p>
+                                <ul>
+                                    <li><strong>Change Ratio Heatmap:</strong> 각 산업의 BSI 값이 현재 값과 비교하여 얼마나 변화했는지를 시각적으로
+                                        보여줍니다. 이 히트맵은 각 산업의 변화 비율을 색상으로 표시하여, 증가 또는 감소한 정도를 쉽게 파악할 수 있습니다.</li>
+                                    <li><strong>Change Ratio LineGraph:</strong> 각 산업의 BSI 변화 비율을 시간 경과에 따라 선 그래프로 표시하여,
+                                        증가 또는 감소한 정도를 쉽게 파악할 수 있습니다. 라인그래프를 통해 각 지표가 BSI 값에 미치는 영향을 시각적으로 확인할 수 있습니다.
+                                    </li>
+                                </ul>
+
+                                <p><strong>폼 유효성 검사</strong></p>
+                                <p>각 입력 필드는 필수 항목입니다. 값을 입력하지 않으면 기본 값이 사용됩니다. 입력 값이 올바른 형식인지 확인하는 유효성 검사가 포함되어 있습니다.
+                                </p>
+                                <p><strong>예측 실행</strong></p>
+                                <p>모든 값을 입력한 후 예측 버튼을 눌러 예측을 실행합니다. 예측 결과는 페이지 하단에 히트맵 형태로 표시됩니다.</p>
+                                <p>사용자 가이드가 도움이 되셨기를 바랍니다. 질문이나 문제가 있을 경우, 8조 팀에 문의해 주세요. 즐거운 사용 되세요!</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-lg-6 position-relative">
+                <div class="form-section">
+                    <button type="button" class="reset-button" id="resetButton" title="Reset Form">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" class="bi bi-arrow-counterclockwise" viewBox="0 0 16 16">
+                            <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 1 1 .908-.418A6 6 0 1 1 8 2v1z"/>
+                            <path d="M8 1a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-1 0v-4A.5.5 0 0 1 8 1z"/>
+                            <path d="M12.354 3.646a.5.5 0 0 1 0 .708l-2 2a.5.5 0 0 1-.708-.708l2-2a.5.5 0 0 1 .708 0z"/>
+                        </svg>
+                    </button>
+                    <form id="predictionForm" class="needs-validation" novalidate>
+                        <ul class="nav nav-tabs" id="inputTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <a class="nav-link active" id="tab-1" data-bs-toggle="tab" href="#group-1" role="tab"
+                                    aria-controls="group-1" aria-selected="true">국제 지표 및 통화</a>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <a class="nav-link" id="tab-2" data-bs-toggle="tab" href="#group-2" role="tab"
+                                    aria-controls="group-2" aria-selected="false">국내 경제 지표</a>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <a class="nav-link" id="tab-3" data-bs-toggle="tab" href="#group-3" role="tab"
+                                    aria-controls="group-3" aria-selected="false">인구 통계 및 환경</a>
+                            </li>
+                        </ul>
+                        <div class="tab-content" id="inputTabsContent">
+                            <div class="tab-pane fade show active" id="group-1" role="tabpanel" aria-labelledby="tab-1">
+                                <div class="row g-3">
+                                    {% for feature in features %}
+                                    {% if feature in ['KR US currency', 'KR JP currency', 'KR EU currency', 'KR CN currency', 'us_consumer_prices', 'us_gdp', 'us_interest_rate', 'us_inflation_expectations', 'us_nonfarm_employment', 'us_unemployment_rate', 'world_oil_prices'] %}
+
+
+
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label
+                                                for="{{ feature|replace(' ', '_') }}">{{ feature_translations[feature] }}</label>
+                                            <textarea class="form-control" id="{{ feature|replace(' ', '_') }}"
+                                                name="{{ feature }}" placeholder="{{ default_values[feature] }}"
+                                                required>{{ default_values[feature] }}</textarea>
+                                            <div class="invalid-feedback">Please enter values for
+                                                {{ feature_translations[feature] }}.</div>
+                                            <div class="help-text">Enter values separated by commas, e.g., 1.0, 2.0, 3.0
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <div class="tab-pane fade" id="group-2" role="tabpanel" aria-labelledby="tab-2">
+                                <div class="row g-3">
+                                    {% for feature in features %}
+                                    {% if feature in ['KR CCSI', 'KR consumers prices', 'KR GDI', 'KR GDP', 'KR GNI', 'KR construction orders', 'KR interest', 'KR house prices', 'KR news sentiment', 'KR employment rate', 'KR unemployment rate'] %}                                    
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label
+                                                for="{{ feature|replace(' ', '_') }}">{{ feature_translations[feature] }}</label>
+                                            <textarea class="form-control" id="{{ feature|replace(' ', '_') }}"
+                                                name="{{ feature }}" placeholder="{{ default_values[feature] }}"
+                                                required>{{ default_values[feature] }}</textarea>
+                                            <div class="invalid-feedback">Please enter values for
+                                                {{ feature_translations[feature] }}.</div>
+                                            <div class="help-text">Enter values separated by commas, e.g., 1.0, 2.0, 3.0
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <div class="tab-pane fade" id="group-3" role="tabpanel" aria-labelledby="tab-3">
+                                <div class="row g-3">
+                                    {% for feature in features %}
+                                    {% if feature in ['KR total energy consumption', 'KR coal energy consumption', 'KR finedust', 'KR gini', 'KR pop_natural_increase_rate', 'KR pop_elderly_rate', 'KR households', 'KR graduate', 'KR edu_expense', 'KR crime count', 'KR entry', 'KR departments', 'KR corruption perception index'] %}
+
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label
+                                                for="{{ feature|replace(' ', '_') }}">{{ feature_translations[feature] }}</label>
+                                            <textarea class="form-control" id="{{ feature|replace(' ', '_') }}"
+                                                name="{{ feature }}" placeholder="{{ default_values[feature] }}"
+                                                required>{{ default_values[feature] }}</textarea>
+                                            <div class="invalid-feedback">Please enter values for
+                                                {{ feature_translations[feature] }}.</div>
+                                            <div class="help-text">Enter values separated by commas, e.g., 1.0, 2.0, 3.0
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary mt-3">Predict</button>
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="result-section">
+                    <h2 class="heatmap-title">Prediction Results</h2>
+                    <div id="diff-heatmap" class="mb-4"></div>
+                    <div id="line-graph"></div>
+                    <a href="/download_excel" class="btn btn-success mt-3" id="downloadButton"
+                        style="display: none;">Download Excel</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        &copy; 2024 Shinhan Future Academy 8th Team. All rights reserved.
+    </footer>
+
+    <!-- Bootstrap JS and dependencies -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.10.2/dist/umd/popper.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.min.js"></script>
+    <script>
+        // Bootstrap form validation
+        (function () {
+            'use strict';
+            window.addEventListener('load', function () {
+                var forms = document.getElementsByClassName('needs-validation');
+                var validation = Array.prototype.filter.call(forms, function (form) {
+                    form.addEventListener('submit', function (event) {
+                        if (form.checkValidity() === false) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                        }
+                        form.classList.add('was-validated');
+                    }, false);
+                });
+            }, false);
+        })();
+
+        // 숫자와 쉼표, 마이너스만 허용하는 유효성 검사 함수
+        function validateInput(event) {
+            var input = event.target.value;
+            var regex = /^[0-9.,\s-]*$/; 
+            if (!regex.test(input)) {
+                event.target.setCustomValidity("숫자와 쉼표만 입력 가능합니다.");
+            } else {
+                event.target.setCustomValidity("");
+            }
+        }
+
+        // 모든 입력 필드에 유효성 검사 적용
+        document.querySelectorAll('textarea').forEach(function (textarea) {
+            textarea.addEventListener('input', validateInput);
+        });
+
+        // Ajax form submission
+        let downloadLink = null;
+        $(document).ready(function () {
+            $('#predictionForm').on('submit', function (event) {
+                event.preventDefault();
+                if (this.checkValidity() === false) {
+                    event.stopPropagation();
+                } else {
+                    var formData = {};
+                    $('#predictionForm').serializeArray().forEach(function (item) {
+                        formData[item.name] = item.value || $('#' + item.name).attr('placeholder');
+                    });
+                    console.log(formData); // 폼 데이터 확인
+                    $('.spinner-border').show();
+                    $.ajax({
+                        url: "/predict",
+                        type: "POST",
+                        contentType: "application/json",
+                        data: JSON.stringify(formData),
+                        success: function (response) {
+                            $('.spinner-border').hide();
+                            $('#diff-heatmap').empty();
+                            $('#line-graph').empty();
+                            Plotly.newPlot('diff-heatmap', response.diff_heatmap_data.data, response.diff_heatmap_data.layout);
+                            Plotly.newPlot('line-graph', response.line_graph_data.data, response.line_graph_data.layout);
+                            $('.result-section').show();
+                            $('html, body').animate({
+                                scrollTop: $(".result-section").offset().top
+                            }, 1000);
+
+                            // Update download link
+                            $('#downloadButton').attr('href', response.download_link);
+                            $('#downloadButton').show();
+
+                        },
+                        error: function (error) {
+                            console.log(error);
+                            $('.spinner-border').hide();
+                        }
+                    });
+                }
+                this.classList.add('was-validated');
+            });
+
+            // Initialize tooltips
+            $('[data-bs-toggle="tooltip"]').tooltip();
+
+            // Reset form fields to default values
+            $('#resetButton').on('click', function () {
+                $('#predictionForm').trigger('reset');
+                $('textarea').each(function () {
+                    $(this).val($(this).attr('placeholder'));
+                });
+            });
+        });
+
+        // 서비스 워커와 푸시 알림을 위한 코드 추가
+        if ('serviceWorker' in navigator && 'PushManager' in window) {
+            navigator.serviceWorker.register('../static/service-worker.js')
+                .then(function (swReg) {
+                    console.log('Service Worker is registered', swReg);
+
+                    swReg.pushManager.getSubscription()
+                        .then(function (subscription) {
+                            if (!subscription) {
+                                subscribeUser(swReg);
+                            }
+                        });
+                })
+                .catch(function (error) {
+                    console.error('Service Worker Error', error);
+                });
+        }
+
+        function subscribeUser(swReg) {
+            const applicationServerKey = urlB64ToUint8Array('YOUR_PUBLIC_KEY');
+            swReg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: applicationServerKey
+            })
+                .then(function (subscription) {
+                    console.log('User is subscribed:', subscription);
+
+                    $.ajax({
+                        url: '/subscribe',
+                        type: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify(subscription),
+                        success: function (response) {
+                            console.log('Subscribed to push notifications:', response);
+                        },
+                        error: function (error) {
+                            console.error('Error subscribing to push notifications:', error);
+                        }
+                    });
+                })
+                .catch(function (error) {
+                    if (Notification.permission === 'denied') {
+                        console.warn('Permission for notifications was denied');
+                    } else {
+                        console.error('Failed to subscribe the user: ', error);
+                    }
+                });
+        }
+
+        function urlB64ToUint8Array(base64String) {
+            const padding = '='.repeat((4 - base64String.length % 4) % 4);
+            const base64 = (base64String + padding)
+                .replace(/-/g, '+')
+                .replace(/_/g, '/');
+
+            const rawData = window.atob(base64);
+            const outputArray = new Uint8Array(rawData.length);
+
+            for (let i = 0; i < rawData.length; ++i) {
+                outputArray[i] = rawData.charCodeAt(i);
+            }
+            return outputArray;
+        }
+
+        function urlBase64ToUint8Array(base64String) {
+            const padding = '='.repeat((4 - base64String.length % 4) % 4);
+            const base64 = (base64String + padding)
+                .replace(/-/g, '+')
+                .replace(/_/g, '/');
+
+            const rawData = window.atob(base64);
+            const outputArray = new Uint8Array(rawData.length);
+
+            for (let i = 0; i < rawData.length; ++i) {
+                outputArray[i] = rawData.charCodeAt(i);
+            }
+            return outputArray;
+        }
+        const publicVapidKey = "BMRLzD7wOGXCbk5VdnOkTSzjQJeLhZtUOLj2lWMKsUFYwMRJep_UjsoJIw5okVL4Sg1k0NlatIL5vCYD9b_2SSs";
+
+        function subscribeUser() {
+            if ('serviceWorker' in navigator && 'PushManager' in window) {
+                navigator.serviceWorker.ready.then(function (reg) {
+                    reg.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: urlBase64ToUint8Array(publicVapidKey)
+                    }).then(function (sub) {
+                        console.log('Endpoint URL: ', sub.endpoint);
+                        return fetch('/subscribe', {
+                            method: 'POST',
+                            body: JSON.stringify(sub),
+                            headers: {
+                                'Content-Type': 'application/json'
+                            }
+                        });
+                    }).then(function (response) {
+                        if (!response.ok) {
+                            throw new Error('Bad status code from server.');
+                        }
+                        return response.json();
+                    }).then(function (responseData) {
+                        if (!(responseData.status && responseData.status === 'success')) {
+                            throw new Error('Bad response from server.');
+                        }
+                    }).catch(function (error) {
+                        console.error('Failed to subscribe the user: ', error);
+                    });
+                });
+            }
+        }
+    </script>
+</body>
+
+</html>

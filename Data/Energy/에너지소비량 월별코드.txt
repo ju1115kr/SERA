@@ -1,0 +1,27 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# 엑셀 파일 로드
+file_path = "Data/Energy/에너지소비량_월별.xlsx"
+kr_energy_consumption = pd.read_excel(file_path)
+
+# '분류별(1)' 컬럼을 인덱스로 설정
+kr_energy_consumption.set_index('분류별(1)', inplace=True)
+
+# 월별 합계 소비량과 석탄 소비량만 추출하여 데이터 프레임으로 변환
+monthly_kr_energy_consumption = pd.DataFrame({
+    '월': kr_energy_consumption.columns,
+    'KR_Total_Energy_consumption': kr_energy_consumption.loc['합계'].values,
+    'KR_Coal_Energy_consumption': kr_energy_consumption.loc['석탄'].values
+})
+
+# 월별 데이터를 datetime 형식으로 변환하고 Year, Month 컬럼으로 분리
+monthly_kr_energy_consumption['월'] = pd.to_datetime(monthly_kr_energy_consumption['월'], format='%Y.%m')
+monthly_kr_energy_consumption['Year'] = monthly_kr_energy_consumption['월'].dt.year
+monthly_kr_energy_consumption['Month'] = monthly_kr_energy_consumption['월'].dt.month
+
+# 컬럼 순서 변경
+monthly_kr_energy_consumption = monthly_kr_energy_consumption[['Year', 'Month', 'KR_Total_Energy_consumption', 'KR_Coal_Energy_consumption']]
+
+monthly_kr_energy_consumption

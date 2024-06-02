@@ -1,0 +1,28 @@
+import pandas as pd
+news_sentiment_data = pd.read_csv("Data/News/뉴스심리지수.csv", encoding='euc-kr')
+
+# Correct the parsing logic for extracting year and month
+reshaped_data = []
+
+# Extract year and month from column names correctly
+for column in news_sentiment_data.columns[1:]:
+    month_year = column.split('-')
+    month = month_year[0]
+    year = '20' + month_year[1]
+    value = news_sentiment_data[column].iloc[0]
+    reshaped_data.append([year, month, value])
+
+# Create a new dataframe with the reshaped data
+reshaped_df = pd.DataFrame(reshaped_data, columns=['Year', 'Month', 'Value'])
+
+# Convert month abbreviations to numerical values
+month_mapping = {
+    'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+    'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+}
+
+reshaped_df['Month'] = reshaped_df['Month'].map(month_mapping)
+
+# Sort the dataframe by Year and Month
+monthly_kr_news_sentiment_data = reshaped_df.sort_values(by=['Year', 'Month']).reset_index(drop=True)
+monthly_kr_news_sentiment_data

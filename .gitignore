@@ -1,0 +1,9 @@
+.DS_*
+*.log
+logs
+**/*backup*
+**/*ipynb_checkpoints*
+**/*구*
+구*
+flask/backup
+flask/backup/*
