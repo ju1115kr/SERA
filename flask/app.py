@@ -12,6 +12,8 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from flask_caching import Cache
 from datetime import datetime
+import threading
+from flask_swagger_ui import get_swaggerui_blueprint
 
 app = Flask(__name__)
 cache = Cache(app, config={'CACHE_TYPE': 'SimpleCache'})
@@ -39,18 +41,24 @@ def save_log_to_excel():
     global log_df
     log_df.to_excel(log_filename, index=False)
 
-class ExcelHandler(logging.Handler):
+log_lock = threading.Lock()
+
+class AsyncExcelHandler(logging.Handler):
     def emit(self, record):
-        global log_df
         log_entry = self.format(record)
-        timestamp = datetime.fromtimestamp(record.created).strftime('%Y-%m-%d %H:%M:%S')  # 타임스탬프 형식 변경
+        threading.Thread(target=self._write_log, args=(record, log_entry)).start()
+        
+    def _write_log(self, record, log_entry):
+        global log_df
+        timestamp = datetime.fromtimestamp(record.created).strftime('%Y-%m-%d %H:%M:%S')
         level = record.levelname
         message = log_entry
         new_log_entry = pd.DataFrame([{"timestamp": timestamp, "level": level, "message": message}])
-        log_df = pd.concat([log_df, new_log_entry], ignore_index=True)
-        save_log_to_excel()
+        with log_lock:
+            log_df = pd.concat([log_df, new_log_entry], ignore_index=True)
+            save_log_to_excel()
 
-excel_handler = ExcelHandler()
+excel_handler = AsyncExcelHandler()
 excel_handler.setLevel(logging.INFO)
 logger.addHandler(excel_handler)
 
@@ -198,18 +206,14 @@ for key in current_macro_data.columns:
 disaster_scenario_df = pd.DataFrame(scenario_data)
 
 
-
 # Covid-19 시나리오
 real_macro_df = pd.read_excel('../Data/Summary/real_MacroEconomics.xlsx')
 real_macro_df = real_macro_df.drop('Unnamed: 0', axis=1)
-covid_scenario_df = real_macro_df[(real_macro_df['index'] == "2019/09") |
-                                  (real_macro_df['index'] == "2019/10") |
-                                  (real_macro_df['index'] == "2019/11") |
-                                  (real_macro_df['index'] == "2019/12") | 
-                                  (real_macro_df['index'] == "2020/01") | 
-                                  (real_macro_df['index'] == "2020/02") | 
-                                  (real_macro_df['index'] == "2020/03")]
+covid_scenario_df = real_macro_df[real_macro_df['index'].str.contains('2019') | 
+                                 real_macro_df['index'].str.contains('2020') | 
+                                 real_macro_df['index'].str.contains('2021')]
 covid_scenario_df = round(covid_scenario_df, 2)
+
 
 @cache.cached(timeout=600, key_prefix='load_models')
 def load_models():
@@ -257,10 +261,15 @@ load_models()
 @cache.memoize(timeout=300)
 def predict_scenario(scenario_data_scaled):
     with ThreadPoolExecutor() as executor:
-        future_to_model = {executor.submit(models[col].predict, scenario_data_scaled): col for col in columns}
-        predictions = {future_to_model[future]: future.result() for future in future_to_model}
+        future_to_model = {executor.submit(get_model(col).predict, scenario_data_scaled): col for col in columns}
+        predictions = {future_to_model[future]: future.result(timeout=60) for future in future_to_model}
     predictions_df = pd.DataFrame(predictions)
     return predictions_df
+
+def get_model(column):
+    if column not in models:
+        models[column] = joblib.load(f'../model/xgboost_model_{column}.pkl')
+    return models[column]
 
 def send_web_push(subscription_information, message_body):
     return webpush(
@@ -301,135 +310,141 @@ def homeapp():
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    input_data = request.get_json() or request.form.to_dict()
-
-    for key in input_data:
-        if input_data[key] == '':
-            input_data[key] = current_macro_data[key].iloc[0]
-    df = pd.DataFrame(input_data, index=[0])
-
-    future_macro_data_list = []
-    max_values = 0
-    for column in df.columns:
-        values = df[column]
-        if isinstance(values[0], str):
-            values = values[0].split(',')
-        else:
-            values = [values[0]]
-        values = [float(value.strip()) for value in values if value.strip()]
-        if values:
-            max_values = max(max_values, len(values))
-        future_macro_data_list.append(values)
-        
-    if max_values == 0:
-        return jsonify({"error": "No valid input values provided."})
-
-    for i in range(len(future_macro_data_list)):
-        if len(future_macro_data_list[i]) < max_values:
-            last_value = future_macro_data_list[i][-1]
-            future_macro_data_list[i].extend([last_value] * (max_values - len(future_macro_data_list[i])))
-
-    future_macro_data = pd.DataFrame(future_macro_data_list).T
-    future_macro_data.columns = df.columns
-
-    time_periods = pd.date_range(start=pd.to_datetime('now'), periods=max_values, freq='M')
-    
-    scenario_df = pd.concat([current_macro_data] * max_values, ignore_index=True)
-    scenario_df['index'] = time_periods
-    for column in future_macro_data.columns:
-        scenario_df[column] = future_macro_data[column].values
-
-    scenario_df = scenario_df.drop(columns=['index'])
-
-    scaler = MinMaxScaler()
-    scenario_scaled = scaler.fit_transform(scenario_df)
-
     try:
-        predictions_df_scaled = predict_scenario(scenario_scaled)
-    except ValueError as e:
-        logger.error(f"Prediction error: {e}")
-        return jsonify({"error": str(e)})
+        input_data = request.get_json() or request.form.to_dict()
 
-    predictions_df = predictions_df_scaled * (current_bsi_latest_values.max() - current_bsi_latest_values.min()) + current_bsi_latest_values.min()
+        for key in input_data:
+            if input_data[key] == '':
+                input_data[key] = current_macro_data[key].iloc[0]
+        df = pd.DataFrame(input_data, index=[0])
 
-    def calculate_diff_ratio(predictions_df, current_values):
-        diff_ratio = (predictions_df - current_values) / current_values
-        return diff_ratio
+        future_macro_data_list = []
+        max_values = 0
+        for column in df.columns:
+            values = df[column]
+            if isinstance(values[0], str):
+                values = values[0].split(',')
+            else:
+                values = [values[0]]
+            values = [float(value.strip()) for value in values if value.strip()]
+            if values:
+                max_values = max(max_values, len(values))
+            future_macro_data_list.append(values)
+        
+        if max_values == 0:
+            return jsonify({"error": "No valid input values provided."})
 
-    diff_ratio = calculate_diff_ratio(predictions_df, current_bsi_latest_values)
+        for i in range(len(future_macro_data_list)):
+            if len(future_macro_data_list[i]) < max_values:
+                last_value = future_macro_data_list[i][-1]
+                future_macro_data_list[i].extend([last_value] * (max_values - len(future_macro_data_list[i])))
 
-    def create_heatmap(data, title, vmin, vmax, time_periods):
-        heatmap = go.Figure(data=go.Heatmap(
-            z=data.T.values,
-            x=[period.strftime('%Y-%m') for period in time_periods],
-            y=data.columns.str.replace("_업황실적", ""),
-            colorscale='RdBu_r',
-            zmin=vmin,
-            zmax=vmax,
-        ))
-        heatmap.update_layout(
-            title=title, 
-            xaxis_title='Time Periods', 
-            yaxis_title='BSI Columns', 
-            xaxis=dict(tickformat='%Y-%m'),
-            yaxis=dict(tickmode='array', tickvals=list(range(len(data.columns))), 
-                       ticktext=data.columns.str.replace("_업황실적",""), automargin=True),
-            height=800)
-        return heatmap
+        future_macro_data = pd.DataFrame(future_macro_data_list).T
+        future_macro_data.columns = df.columns
 
-    def create_line_graph(data, title, time_periods):
-        line_graph = go.Figure()
-        for col in data.columns:
-            line_graph.add_trace(go.Scatter(
-                x=[period.strftime('%Y-%m') for period in time_periods],
-                y=data[col],
-                mode='lines+markers',
-                name=col.replace("_업황실적", "")
-            ))
-        line_graph.update_layout(
-            title=title, 
-            xaxis_title='Time Periods', 
-            yaxis_title='Change Ratio', 
-            height=800
-        )
-        return line_graph
-
-    vmin = diff_ratio.min().min()
-    vmax = diff_ratio.max().max()
-
-    diff_heatmap = create_heatmap(diff_ratio, 'Change Ratio Heatmap', vmin, vmax, time_periods)
-    line_graph = create_line_graph(diff_ratio, 'Change Ratio LineGraph', time_periods)
-
-    diff_heatmap_data = json.loads(diff_heatmap.to_json())
-    line_graph_data = json.loads(line_graph.to_json())
-
-    excel_filename = f"prediction_results_{uuid.uuid4().hex}.xlsx"
-    output_path = os.path.join(os.getcwd(), "static", excel_filename)
+        time_periods = pd.date_range(start=pd.to_datetime('now'), periods=max_values, freq='M')
     
-    with pd.ExcelWriter(output_path) as writer:
-        scenario_df.to_excel(writer, sheet_name="Input Data")
-        predictions_df.to_excel(writer, sheet_name="Predicted BSI Values")
-        diff_ratio.to_excel(writer, sheet_name="Change Ratio")
+        scenario_df = pd.concat([current_macro_data] * max_values, ignore_index=True)
+        scenario_df['index'] = time_periods
+        for column in future_macro_data.columns:
+            scenario_df[column] = future_macro_data[column].values
 
-    download_link = url_for('download_excel', filename=excel_filename)
-    
-    notification_payload = {
-        "title": "SERA - Prediction Completed",
-        "body": "Your prediction request has been processed.",
-        "icon": "images/logo.png"
-    }
+        scenario_df = scenario_df.drop(columns=['index'])
 
-    def send_notification(subscription):
+        scaler = MinMaxScaler()
+        scenario_scaled = scaler.fit_transform(scenario_df)
+
         try:
-            send_web_push(subscription, json.dumps(notification_payload))
-        except WebPushException as ex:
-            logger.error(f"Web push failed: {ex}")
+            predictions_df_scaled = predict_scenario(scenario_scaled)
+        except ValueError as e:
+            logger.error(f"Prediction error: {e}")
+            return jsonify({"error": str(e)})
 
-    with ThreadPoolExecutor() as executor:
-        executor.map(send_notification, subscriptions)
+        predictions_df = predictions_df_scaled * \
+                        (current_bsi_latest_values.max() - current_bsi_latest_values.min()) + current_bsi_latest_values.min()
+
+        def calculate_diff_ratio(predictions_df, current_values):
+            diff_ratio = (predictions_df - current_values) / current_values
+            return diff_ratio
+
+        diff_ratio = calculate_diff_ratio(predictions_df, current_bsi_latest_values)
+
+        def create_heatmap(data, title, vmin, vmax, time_periods):
+            heatmap = go.Figure(data=go.Heatmap(
+                z=data.T.values,
+                x=[period.strftime('%Y-%m') for period in time_periods],
+                y=data.columns.str.replace("_업황실적", ""),
+                colorscale='RdBu_r',
+                zmin=vmin,
+                zmax=vmax,
+            ))
+            heatmap.update_layout(
+                title=title, 
+                xaxis_title='Time Periods', 
+                yaxis_title='BSI Columns', 
+                xaxis=dict(tickformat='%Y-%m'),
+                yaxis=dict(tickmode='array', tickvals=list(range(len(data.columns))), 
+                           ticktext=data.columns.str.replace("_업황실적",""), automargin=True),
+                height=800)
+            return heatmap
+
+        def create_line_graph(data, title, time_periods):
+            line_graph = go.Figure()
+            for col in data.columns:
+                line_graph.add_trace(go.Scatter(
+                    x=[period.strftime('%Y-%m') for period in time_periods],
+                    y=data[col],
+                    mode='lines+markers',
+                    name=col.replace("_업황실적", "")
+                ))
+            line_graph.update_layout(
+                title=title, 
+                xaxis_title='Time Periods', 
+                yaxis_title='Change Ratio', 
+                height=800
+            )
+            return line_graph
+
+        vmin = diff_ratio.min().min()
+        vmax = diff_ratio.max().max()
+
+        diff_heatmap = create_heatmap(diff_ratio, 'Change Ratio Heatmap', vmin, vmax, time_periods)
+        line_graph = create_line_graph(diff_ratio, 'Change Ratio LineGraph', time_periods)
+
+        diff_heatmap_data = json.loads(diff_heatmap.to_json())
+        line_graph_data = json.loads(line_graph.to_json())
+
+        excel_filename = f"prediction_results_{uuid.uuid4().hex}.xlsx"
+        output_path = os.path.join(os.getcwd(), "static", excel_filename)
     
-    return jsonify(diff_heatmap_data=diff_heatmap_data, line_graph_data=line_graph_data, download_link=download_link)
+        with pd.ExcelWriter(output_path) as writer:
+            scenario_df.to_excel(writer, sheet_name="Input Data")
+            predictions_df.to_excel(writer, sheet_name="Predicted BSI Values")
+            diff_ratio.to_excel(writer, sheet_name="Change Ratio")
 
+        download_link = url_for('download_excel', filename=excel_filename)
+    
+        notification_payload = {
+            "title": "SERA - Prediction Completed",
+            "body": "Your prediction request has been processed.",
+            "icon": "images/logo.png"
+        }
+
+        def send_notification(subscription):
+            try:
+                send_web_push(subscription, json.dumps(notification_payload))
+            except WebPushException as ex:
+                logger.error(f"Web push failed: {ex}")
+
+        with ThreadPoolExecutor() as executor:
+            executor.map(send_notification, subscriptions)
+    
+        return jsonify(diff_heatmap_data=diff_heatmap_data, line_graph_data=line_graph_data, download_link=download_link)
+    
+    except Exception as e:
+        logger.error(f"Error in /predict: {e}")
+        return jsonify({"error": str(e)})
+    
 @app.route('/download_excel', methods=['GET'])
 def download_excel():
     filename = request.args.get('filename')
@@ -472,5 +487,20 @@ def send_test_notification():
             logger.error(f"Remote service replied with a {extra.code}:{extra.errno}, {extra.message}")
         return jsonify({"success": False}), 500
     
+### Swagger 설정 ###
+SWAGGER_URL = '/api/docs'  # Swagger UI를 제공할 URL
+API_URL = '/static/swagger.json'  # Swagger JSON 파일의 URL
+
+swaggerui_blueprint = get_swaggerui_blueprint(
+    SWAGGER_URL,
+    API_URL,
+    config={  # Swagger UI의 기본 구성을 설정합니다.
+        'app_name': "SERA API"
+    }
+)
+
+app.register_blueprint(swaggerui_blueprint, url_prefix=SWAGGER_URL)
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0')
+    #app.run(debug=True, host='0.0.0.0')
+    app.run(debug=True)
